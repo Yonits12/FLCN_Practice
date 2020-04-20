@@ -1,3 +1,6 @@
+#! /usr/bin/python3.7
+import struct
+
 # Global Variables
 current_address = 0
 sym_tbl = {}
@@ -141,23 +144,22 @@ def first_step(assembly_file):
       all_lines = origin_file.readlines()
       for index, line in enumerate(all_lines):
          if line == '\n' or line[0] == ';': continue                                      # Blank lines, Comment lines
-         all_lines[index] = translate_line(line[:-1] if line[-1] is '\n' else line)       # remove \n
-   with open('semi_output.txt', 'w') as outfile:
+         all_lines[index] = translate_line(line.strip())
+   with open('output/semi_output.txt', 'w') as outfile:
       for line in all_lines:
          outfile.write(line + '\n')
 
 
 def second_step(outfile_name):
-   with open('semi_output.txt','r') as intermidiate_file:
+   with open('output/semi_output.txt','r') as intermidiate_file:
       all_lines = intermidiate_file.readlines()
       for index, line in enumerate(all_lines):
-         all_lines[index] = fix_line(line[:-1] if line[-1] is '\n' else line)          # remove \n
-   with open('cool_' + outfile_name, 'w') as outfile:                                  # Output with line breaks
-      for line in all_lines:
-         outfile.write(line + '\n')
-   with open(outfile_name, 'w') as outfile:
-      for line in all_lines:
-         outfile.write(line)
+         all_lines[index] = fix_line(line.strip())
+   output_binary_string = ''.join(all_lines)
+   with open(outfile_name, 'wb') as bin_out:
+      bytes_string = [(output_binary_string[i:i+8]) for i in range(0, len(output_binary_string), 8)]
+      for byte_str in bytes_string:
+         bin_out.write(struct.pack('>B', int(byte_str, 2)))
    print("Assembling Done.")
 
 
@@ -170,4 +172,4 @@ def assemble_code(input_file, output_file):
 assemble_code('lightAssmbly.txt', 'lightOutput.txt') """
 
 # For Example Case
-assemble_code('Example.txt', 'Output.txt')
+assemble_code('input/Example.txt', 'output/output.bin')
