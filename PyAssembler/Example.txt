@@ -1,0 +1,9 @@
+MAIN: mov r0, INDEX
+sub r1, 0
+LOOP: sub r0, INDEX
+jz END
+inc r1
+jmp LOOP
+END: nop
+MSG: .string "hello"
+INDEX: .data 12
