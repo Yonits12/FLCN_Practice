@@ -63,13 +63,16 @@ class Assembler():
 
     # Helper Functions
 
+
     def invokeError(self, message):
         print("ERROR:" + message)
         exit()
 
+
     def convert_str_to_binary(self, data_string):
         self.current_address += (len(data_string) + 1)
-        return ''.join(format(ord(i), '08b')+'\n' for i in data_string+'\0')[:-1]
+        return ''.join(format(ord(i), '08b')+'\n' for i in data_string+'\0').strip('\n')
+
 
     def handle_addressing_mode(self, second_arg):
         addr_mode = AddressingMode.DIRECT
@@ -80,56 +83,91 @@ class Assembler():
             addr_mode = AddressingMode.IMMEDIATE
         elif second_arg.startswith('[') and second_arg.endswith(']'):
             addr_mode = AddressingMode.INDIRECT
-            clean_sec_arg = second_arg[1:-1]
+            clean_sec_arg = second_arg.strip('[]')
         return addr_mode, clean_sec_arg
 
-    def update_sym_tbl(self, label):
-        self.sym_tbl.update({label: self.current_address})
 
     def handle_label(self, words):
-        if words[0].endswith(':'):
-            self.update_sym_tbl(words[0][:-1])
+        label_then_code = words[0].split(':')
+        if len(label_then_code) > 1:
+            self.sym_tbl.update({label_then_code[0].rstrip(':'): self.current_address})
             words.pop(0)
+            if label_then_code[1] != '':
+                words.insert(0, label_then_code[1])
+
+
+    def handle_type_1(self, translated_words, arg):
+        trans_word1, trans_word2 = translated_words
+        
+        # Find 1st argument and then update relevant bits
+        bin_reg = Assembler.REGISTERS.get(arg)
+        
+        if bin_reg:
+            trans_word1 = trans_word1[:4] + bin_reg + trans_word1[7:]
+        
+        elif arg.isnumeric():
+            trans_word2 = format(int(arg), '016b')
+        
+        else:
+            trans_word2 = arg
+        
+        translated_words[0] = trans_word1
+        translated_words[1] = '\n' + trans_word2 if trans_word2 != '' else trans_word2          # TODO it is terrible!
+
+
+    def handle_type_2(self, translated_words, arg1, arg2):
+        trans_word1, trans_word2 = translated_words
+        
+        # Find 1st register and then update reg1 bits
+        bin_reg1 = Assembler.REGISTERS.get(arg1)
+        
+        if not bin_reg1: 
+            self.invokeError("Invalid first register of 3-type line")
+        
+        else:
+            trans_word1 = trans_word1[:4] + bin_reg1 + trans_word1[7:]  
+
+        # Find 2nd argument and then update relevant bits
+        bin_reg2 = Assembler.REGISTERS.get(arg2)
+        
+        if bin_reg2:
+            return trans_word1[:9] + bin_reg2 + trans_word1[12:]                
+       
+        elif arg2.isnumeric():
+            trans_word2 = format(int(arg2), '016b')                          
+       
+        else:
+            trans_word2 = arg2
+        
+        translated_words[0] = trans_word1
+        translated_words[1] = '\n' + trans_word2 if trans_word2 != '' else trans_word2          # TODO it is terrible!
+
 
     def handle_by_type(self, words, opcode_type, translated_words):
-        trans_word1, trans_word2 = translated_words
+        trans_word1 = translated_words[0]
         self.current_address += 2
 
-        if opcode_type == 0:        # nop
+        # nop
+        if opcode_type == 0:
             return        
         
         addr_mode, clean_sec_arg = self.handle_addressing_mode(words[-1])
-        trans_word1 = trans_word1[:7] + addr_mode + trans_word1[9:]       # update addr_mode bits
         
-        if opcode_type == 1:                                # not clr inc dec jmp jne jz sections
-            bin_reg = Assembler.REGISTERS.get(clean_sec_arg)                                          # check the inner parameter
-            if bin_reg:
-                trans_word1 = trans_word1[:4] + bin_reg + trans_word1[7:]      # update first reg bits
-            elif clean_sec_arg.isnumeric():
-                trans_word2 = format(int(clean_sec_arg), '016b')                          # update numeric value bits
-            else:
-                trans_word2 = clean_sec_arg                                               # update placeholder bits
+        # update addr_mode bits
+        translated_words[0] = trans_word1[:7] + addr_mode + trans_word1[9:]       
         
-        elif opcode_type == 2:                              # mov cmp add sub lea xor or rol
-            bin_reg1 = Assembler.REGISTERS.get(words[1][:-1])                                        # remove ','
-            if not bin_reg1: 
-                self.invokeError("Invalid first register of 3-type line")
-            else:
-                trans_word1 = trans_word1[:4] + bin_reg1 + trans_word1[7:]  # update first reg bits
-            bin_reg2 = Assembler.REGISTERS.get(clean_sec_arg)
-            if bin_reg2:
-                return trans_word1[:9] + bin_reg2 + trans_word1[12:]                # update second reg bits
-            elif clean_sec_arg.isnumeric():
-                trans_word2 = format(int(clean_sec_arg), '016b')                          # update numeric value bits
-            else:
-                trans_word2 = clean_sec_arg                                               # update placeholder bits
+        # not clr inc dec jmp jne jz sections
+        if opcode_type == 1:                                
+            self.handle_type_1(translated_words, clean_sec_arg)
+        
+        # mov cmp add sub lea xor or rol
+        elif opcode_type == 2:                              
+           self.handle_type_2(translated_words, words[1].rstrip(','), clean_sec_arg)
         
         else:
             self.invokeError("It is not a valid assembly line (maybe comment or sections).")
         
         self.current_address += 2
-        translated_words[0] = trans_word1
-        translated_words[1] = '\n' + trans_word2 if trans_word2 != '' else trans_word2          # TODO it is terrible!
 
 
     def translate_line(self, asm_line):
@@ -141,18 +179,26 @@ class Assembler():
         :rtype: str
         """
 
+        # Remove spaces from indirect expression, if any.
         words = asm_line.split('[')
         if len(words) > 1:
             asm_line = words[0] + "[" + words[1].replace(" ", "")
+        
         words = asm_line.split()
         self.handle_label(words)
+        
         translated_words = [Assembler.EMPTY_WORD, '']
+        
+        # Section line check.
         if self.section_handler(words, translated_words):
             return translated_words[0]
+        
         bin_opcode, opcode_type = Assembler.OPCODES.get(words[0])
         translated_words[0] = bin_opcode + Assembler.EMPTY_WORD[4:]                   # update opcode bits
         self.handle_by_type(words, opcode_type, translated_words)
+        
         return ''.join(translated_words)
+
 
     def fix_line(self, damaged_line):
         try:
@@ -164,15 +210,17 @@ class Assembler():
             damaged_line = eval(damaged_line)
             return format(int(damaged_line) & 0xffff, '016b')
 
+
     def section_handler(self, words, translated_words):
         if words[0] == Sections.STRING:
-            translated_words[0] = self.convert_str_to_binary(words[1][1:-1])
+            translated_words[0] = self.convert_str_to_binary(words[1].strip('"'))
         elif words[0] == Sections.DATA:
             self.current_address += 2
             translated_words[0] = format(int(words[1]), '016b')
         else:
             return
         return True
+
 
     def clean_comments(self, asm_lines):
         for index, line in enumerate(asm_lines):
@@ -184,7 +232,7 @@ class Assembler():
                 asm_lines[index] = code_then_comment[0].strip()
         return [line for line in asm_lines if line is not None]
 
-    # Public Functions
+
     def first_step(self, assembly_file):
         with open(assembly_file,'r') as origin_file:
             all_lines = origin_file.readlines()
@@ -210,6 +258,8 @@ class Assembler():
     def assemble_code(self):
         self.first_step(self.input_file)
         self.second_step(self.output_file)
+
+
 
 def setup_argparse():
     parser = argparse.ArgumentParser()
