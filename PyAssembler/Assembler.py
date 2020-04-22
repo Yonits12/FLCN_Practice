@@ -6,6 +6,7 @@ from enum import IntEnum, unique
 
 
 class Sections():
+    
     STRING = '.string'
     DATA =   '.data'
 
@@ -132,6 +133,17 @@ class Assembler():
 
 
     def translate_line(self, asm_line):
+        """ 
+        Converts an assembly code line to it's binary representation.
+        
+        :param asm_line: A string represents the assembly code line
+        :returns: The binary representation of the assembly line.
+        :rtype: str
+        """
+
+        words = asm_line.split('[')
+        if len(words) > 1:
+            asm_line = words[0] + "[" + words[1].replace(" ", "")
         words = asm_line.split()
         self.handle_label(words)
         translated_words = [Assembler.EMPTY_WORD, '']
