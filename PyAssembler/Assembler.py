@@ -1,6 +1,53 @@
-#! /usr/bin/python3.7
+#! /usr/bin/env
 import struct
 import argparse
+from enum import IntEnum, unique
+
+# Constants
+WORD_SIZE = 16
+EMPTY_WORD = '0000000000000000'
+OPCODES = {
+    'mov': ("0000", 2),
+    'cmp': ("0001", 2),
+    'add': ("0010", 2),
+    'sub': ("0011", 2),
+    'not': ("0100", 1),
+    'clr': ("0101", 1),
+    'lea': ("0110", 2),
+    'inc': ("0111", 1),
+    'dec': ("1000", 1),
+    'jmp': ("1001", 1),
+    'jne': ("1010", 1),
+    'jz' : ("1011", 1),
+    'xor': ("1100", 2),
+    'or' : ("1101", 2),
+    'rol': ("1110", 2),
+    'nop': ("1111", 0)
+}
+
+REGISTERS = {
+    'r0': "000",
+    'r1': "001",
+    'r2': "010",
+    'r3': "011",
+    'r4': "100",
+    'r5': "101",
+    'r6': "110",
+    'r7': "111"
+    }
+
+class Sections():
+    STRING = '.string'
+    DATA =   '.data'
+
+
+class AddressingMode():
+    REGISTER    = '00'
+    IMMEDIATE   = '01'
+    DIRECT      = '10'
+    INDIRECT    = '11'
+
+
 
 # Global Variables
 current_address = 0
@@ -26,105 +73,80 @@ def convert_str_to_binary(data_string):
     current_address = current_address + len(data_string) + 1
     return ''.join(format(ord(i), '08b')+'\n' for i in data_string+'\0')[:-1]
 
-def switch_opcode(opcode):
-    switcher = {
-        'mov': "0000",
-        'cmp': "0001",
-        'add': "0010",
-        'sub': "0011",
-        'not': "0100",
-        'clr': "0101",
-        'lea': "0110",
-        'inc': "0111",
-        'dec': "1000",
-        'jmp': "1001",
-        'jne': "1010",
-        'jz': "1011",
-        'xor': "1100",
-        'or': "1101",
-        'rol': "1110",
-        'nop': "1111"
-    }
-    return switcher.get(opcode, False)
-
-def switch_register(reg_idx):
-    switcher = {
-        'r0': "000",
-        'r1': "001",
-        'r2': "010",
-        'r3': "011",
-        'r4': "100",
-        'r5': "101",
-        'r6': "110",
-        'r7': "111"
-    }
-    return switcher.get(reg_idx, False)
-
-def switch_addressing_mode(second_arg):
-    ans = ['10', second_arg]
-    if switch_register(second_arg):
-        ans[0] = '00'
+def handle_addressing_mode(second_arg):
+    addr_mode = AddressingMode.DIRECT
+    clean_sec_arg = second_arg
+    if REGISTERS.get(second_arg):
+        addr_mode = AddressingMode.REGISTER
     elif second_arg.isnumeric():
-        ans[0] = '01'
-    elif second_arg[0] == '[' and second_arg[-1] == ']':
-        ans[0] = '11'
-        ans[1] = second_arg[1:-1]
-    return ans
+        addr_mode = AddressingMode.IMMEDIATE
+    elif second_arg.startswith('[') and second_arg.endswith(']'):
+        addr_mode = AddressingMode.INDIRECT
+        clean_sec_arg = second_arg[1:-1]
+    return addr_mode, clean_sec_arg
 
 def update_sym_tbl(label):
     global current_address, sym_tbl
     sym_tbl.update({label: current_address})
 
-def check_label(words):
-    if words[0][-1] == ':':
+def handle_label(words):
+    if words[0].endswith(':'):
         update_sym_tbl(words[0][:-1])
-        return words[1:]
-    return words
+        words.pop(0)
 
-def handle_opcode(words):
-    translated_word1 = '0000000000000000'
-    bin_opcode = switch_opcode(words[0])
-    if not bin_opcode:
-        return True, section_handler(words)
-    return False, bin_opcode + translated_word1[4:]        # update opcode bits
-
-def handle_by_type(words, translated_word1):
+def handle_by_type(words, opcode_type, translated_words):
     global current_address
-    translated_word2 = '0000000000000000'
-    current_address+=2
-    line_type = len(words)
-    if(line_type == 1): return translated_word1        # nop
-    addr_mode = switch_addressing_mode(words[-1])
-    translated_word1 = translated_word1[:7] + addr_mode[0] + translated_word1[9:]       # update addr_mode bits
-    if(line_type == 2):                                # not clr inc dec jmp jne jz sections
-        bin_reg = switch_register(addr_mode[1])                                          # check the inner parameter
-        if bin_reg: return translated_word1[:4] + bin_reg + translated_word1[7:]      # update first reg bits
-        elif addr_mode[1].isnumeric():
-            translated_word2 = format(int(addr_mode[1]), '016b')                          # update numeric value bits
+    trans_word1, trans_word2 = translated_words
+    current_address += 2
+
+    if opcode_type == 0:        # nop
+        return        
+    
+    addr_mode, clean_sec_arg = handle_addressing_mode(words[-1])
+    trans_word1 = trans_word1[:7] + addr_mode + trans_word1[9:]       # update addr_mode bits
+    
+    if opcode_type == 1:                                # not clr inc dec jmp jne jz sections
+        bin_reg = REGISTERS.get(clean_sec_arg)                                          # check the inner parameter
+        if bin_reg:
+            trans_word1 = trans_word1[:4] + bin_reg + trans_word1[7:]      # update first reg bits
+        elif clean_sec_arg.isnumeric():
+            trans_word2 = format(int(clean_sec_arg), '016b')                          # update numeric value bits
         else:
-            translated_word2 = addr_mode[1]                                               # update placeholder bits
-    elif(line_type == 3):                              # mov cmp add sub lea xor or rol
-        bin_reg1 = switch_register(words[1][:-1])                                        # remove ','
-        if not bin_reg1: invokeError("Invalid first register of 3-type line")
-        else: translated_word1 = translated_word1[:4] + bin_reg1 + translated_word1[7:]  # update first reg bits
-        bin_reg2 = switch_register(addr_mode[1])
-        if bin_reg2: return translated_word1[:9] + bin_reg2 + translated_word1[12:]                # update second reg bits
-        elif addr_mode[1].isnumeric():
-            translated_word2 = format(int(addr_mode[1]), '016b')                          # update numeric value bits
+            trans_word2 = clean_sec_arg                                               # update placeholder bits
+    
+    elif opcode_type == 2:                              # mov cmp add sub lea xor or rol
+        bin_reg1 = REGISTERS.get(words[1][:-1])                                        # remove ','
+        if not bin_reg1: 
+            invokeError("Invalid first register of 3-type line")
         else:
-            translated_word2 = addr_mode[1]                                               # update placeholder bits
+            trans_word1 = trans_word1[:4] + bin_reg1 + trans_word1[7:]  # update first reg bits
+        bin_reg2 = REGISTERS.get(clean_sec_arg)
+        if bin_reg2:
+            return trans_word1[:9] + bin_reg2 + trans_word1[12:]                # update second reg bits
+        elif clean_sec_arg.isnumeric():
+            trans_word2 = format(int(clean_sec_arg), '016b')                          # update numeric value bits
+        else:
+            trans_word2 = clean_sec_arg                                               # update placeholder bits
+    
     else:
         invokeError("It is not a valid assembly line (maybe comment or sections).")
+    
     current_address+=2
-    return translated_word1 + '\n' + translated_word2
+    translated_words[0] = trans_word1
+    translated_words[1] = '\n' + trans_word2 if trans_word2 != '' else trans_word2          # TODO it is terrible!
+
 
 def translate_line(ass_line):
     global current_address, sym_tbl
     words = ass_line.split()
-    words = check_label(words)
-    label_flag, translated_word1 = handle_opcode(words)
-    if label_flag: return translated_word1
-    return handle_by_type(words, translated_word1)
+    handle_label(words)
+    translated_words = [EMPTY_WORD, '']
+    if section_handler(words, translated_words):
+        return translated_words[0]
+    bin_opcode, opcode_type = OPCODES.get(words[0])
+    translated_words[0] = bin_opcode + EMPTY_WORD[4:]                   # update opcode bits
+    handle_by_type(words, opcode_type, translated_words)
+    return ''.join(translated_words)
 
 def fix_line(damaged_line):
     global sym_tbl
@@ -137,14 +159,16 @@ def fix_line(damaged_line):
         damaged_line = eval(damaged_line)
         return format(int(damaged_line) & 0xffff, '016b')
 
-def section_handler(words):
+def section_handler(words, translated_words):
     global current_address
-    if(words[0] == '.string'):
-        return convert_str_to_binary(words[1][1:-1])
-    elif(words[0] == '.data'):
+    if words[0] == Sections.STRING:
+        translated_words[0] = convert_str_to_binary(words[1][1:-1])
+    elif words[0] == Sections.DATA:
         current_address+=2
-        return format(int(words[1]), '016b')
-    else: invokeError("An invalid opcode was detected.")
+        translated_words[0] = format(int(words[1]), '016b')
+    else:
+        return
+    return True
 
 def clean_comments(asm_lines):
     for index, line in enumerate(asm_lines):
