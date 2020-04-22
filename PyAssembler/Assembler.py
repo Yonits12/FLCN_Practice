@@ -77,21 +77,31 @@ class Assembler():
     def handle_addressing_mode(self, second_arg):
         addr_mode = AddressingMode.DIRECT
         clean_sec_arg = second_arg
+
         if Assembler.REGISTERS.get(second_arg):
             addr_mode = AddressingMode.REGISTER
+        
         elif second_arg.isnumeric():
             addr_mode = AddressingMode.IMMEDIATE
+        
         elif second_arg.startswith('[') and second_arg.endswith(']'):
             addr_mode = AddressingMode.INDIRECT
             clean_sec_arg = second_arg.strip('[]')
+        
         return addr_mode, clean_sec_arg
 
 
     def handle_label(self, words):
+
+        # Extract label
         label_then_code = words[0].split(':')
+        
+        # Save label to symbol table, and remove from line words
         if len(label_then_code) > 1:
             self.sym_tbl.update({label_then_code[0].rstrip(':'): self.current_address})
             words.pop(0)
+            
+            # Repair words of line
             if label_then_code[1] != '':
                 words.insert(0, label_then_code[1])
 
@@ -189,82 +199,107 @@ class Assembler():
         
         translated_words = [Assembler.EMPTY_WORD, '']
         
-        # Section line check.
-        if self.section_handler(words, translated_words):
+        # Section line check. None returns if it is.
+        if self.section_handler(words, translated_words) is None:
             return translated_words[0]
         
+        # update opcode bits
         bin_opcode, opcode_type = Assembler.OPCODES.get(words[0])
-        translated_words[0] = bin_opcode + Assembler.EMPTY_WORD[4:]                   # update opcode bits
+        translated_words[0] = bin_opcode + Assembler.EMPTY_WORD[4:]                   
+        
         self.handle_by_type(words, opcode_type, translated_words)
         
         return ''.join(translated_words)
 
 
     def fix_line(self, damaged_line):
-        try:
-            int(damaged_line, 2)
+        
+        # Check if the line is damaged (== not binary)
+        if damaged_line.strip('01') == '':
             return damaged_line
-        except Exception:
+
+        else:
+            # Re-write the expression as an arithmetic expression using symbol table
             for label_tuple in self.sym_tbl:
                 damaged_line = damaged_line.replace(label_tuple, str(self.sym_tbl[label_tuple]))
+            
             damaged_line = eval(damaged_line)
             return format(int(damaged_line) & 0xffff, '016b')
 
 
     def section_handler(self, words, translated_words):
+        
         if words[0] == Sections.STRING:
-            translated_words[0] = self.convert_str_to_binary(words[1].strip('"'))
+            translated_words[0] = self.convert_str_to_binary(words[1].strip('"'))       # remove " "
+        
         elif words[0] == Sections.DATA:
             self.current_address += 2
             translated_words[0] = format(int(words[1]), '016b')
+        
         else:
-            return
-        return True
+            return True
 
 
     def clean_comments(self, asm_lines):
+
         for index, line in enumerate(asm_lines):
             line = line.strip()
-            if line == '' or line.startswith(';'):        # Blank lines or Comment lines
+            
+            # Blank lines or Comment lines
+            if line == '' or line.startswith(';'):
                 asm_lines[index] = None
+            
             else:
+                # Inline comments
                 code_then_comment = line.split(';')
                 asm_lines[index] = code_then_comment[0].strip()
+        
         return [line for line in asm_lines if line is not None]
 
 
     def first_step(self, assembly_file):
+        
         with open(assembly_file,'r') as origin_file:
             all_lines = origin_file.readlines()
-            cleaned_lines = self.clean_comments(all_lines)
-            semi_trans_lines = [self.translate_line(line) for line in cleaned_lines]
-        with open('PyAssembler/output/semi_output.txt', 'w') as outfile:
-            for line in semi_trans_lines:
-                outfile.write(line + '\n')
+        
+        cleaned_lines = self.clean_comments(all_lines)
+        
+        # Translates the assembly lines with place-holders for the yet unconvertable expressions
+        semi_trans_lines = [self.translate_line(line) for line in cleaned_lines]
+        
+        return semi_trans_lines
 
 
-    def second_step(self, outfile_name):
-        with open('PyAssembler/output/semi_output.txt','r') as intermidiate_file:
-            all_lines = intermidiate_file.readlines()
-            all_lines = [self.fix_line(line.strip()) for line in all_lines]
+    def second_step(self, outfile_name, semi_trans_lines):
+
+        # Fix lines using symbol table & place-holders
+        all_lines = [self.fix_line(line.strip()) for line in semi_trans_lines]
+        
+        # Prepare binary writing
         output_binary_string = ''.join(all_lines)
+        bytes_string = [(output_binary_string[i:i+8]) for i in range(0, len(output_binary_string), 8)]
+        
         with open(outfile_name, 'wb') as bin_out:
-            bytes_string = [(output_binary_string[i:i+8]) for i in range(0, len(output_binary_string), 8)]
             for byte_str in bytes_string:
                 bin_out.write(struct.pack('>B', int(byte_str, 2)))
-        print("Assembling Done.")
 
 
     def assemble_code(self):
-        self.first_step(self.input_file)
-        self.second_step(self.output_file)
+
+        half_translated_lines = self.first_step(self.input_file)
+        
+        self.second_step(self.output_file, half_translated_lines)
+        
+        print("Assembling Done.")
 
 
 
 def setup_argparse():
     parser = argparse.ArgumentParser()
+    
     parser.add_argument("-i", "--input", help="Directs the input to a name of your choice")
     parser.add_argument("-o", "--output", help="Directs the output to a name of your choice")
+    
     return parser.parse_args()
 
 if __name__ == '__main__':
