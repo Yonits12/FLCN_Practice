@@ -49,6 +49,7 @@ class Assembler:
 
     # Constants
     WORD_SIZE = 16
+    ASCII_SIZE = 8
     EMPTY_WORD = '0' * WORD_SIZE
     
     OPCODES = {
@@ -82,9 +83,7 @@ class Assembler:
     }
 
 
-    def __init__(self, in_file, out_file):
-        self.input_file = in_file
-        self.output_file = out_file
+    def __init__(self):
         self.sym_tbl = {}
         self.untranslated_exps = {}
         self.current_address = 0
@@ -187,7 +186,7 @@ class Assembler:
         # update addr_mode bits
         translated_words[0] = trans_word1[:7] + addr_mode + trans_word1[9:]       
         
-        # not clr inc dec jmp jne jz sections
+        # not clr inc dec jmp jne jz
         if opcode_type == 1:                                
             self.handle_1_param_type(translated_words, clean_sec_arg)
         
@@ -284,44 +283,28 @@ class Assembler:
         return [line for line in asm_lines if line is not None]
 
 
-    def first_step(self, assembly_file):
-        
-        with open(assembly_file,'r') as origin_file:
-            all_lines = origin_file.readlines()
-        
-        cleaned_lines = self.clean_comments(all_lines)
-        
-        # Translates the assembly lines with place-holders for the yet unconvertable expressions
+    def first_step(self, assembly_lines):
+        cleaned_lines = self.clean_comments(assembly_lines)
         semi_trans_lines = [self.translate_line(line) for line in cleaned_lines]
         
         # Separate adjacent lines
         semi_trans_lines = [line.split('\n') for line in semi_trans_lines]
         semi_trans_lines = [element for sublist in semi_trans_lines for element in sublist]
-        
         return semi_trans_lines
 
 
-    def second_step(self, outfile_name, semi_trans_lines):
-
+    def second_step(self, semi_trans_lines):
         # Fix lines using symbol table & place-holders
-        all_lines = [self.fix_line(line.strip()) for line in semi_trans_lines]
+        fixed_lines = [self.fix_line(line.strip()) for line in semi_trans_lines]
         
         # Prepare binary writing
-        output_binary_string = ''.join(all_lines)
+        output_binary_string = ''.join(fixed_lines)
         bytes_string = [(output_binary_string[i:i+8]) for i in range(0, len(output_binary_string), 8)]
-        
-        with open(outfile_name, 'wb') as bin_out:
-            for byte_str in bytes_string:
-                bin_out.write(struct.pack('>B', int(byte_str, 2)))
+        return bytes_string
 
-
-    def assemble_code(self):
-
-        half_translated_lines = self.first_step(self.input_file)
-        
-        self.second_step(self.output_file, half_translated_lines)
-        
-        print("Assembling Done.")
+    def assemble_code(self, assembly_lines):
+        half_translated_lines = self.first_step(assembly_lines)
+        return self.second_step(half_translated_lines)
 
 
 
@@ -335,6 +318,19 @@ def setup_argparse():
 
 if __name__ == '__main__':
     args = setup_argparse()
-    asm = Assembler(args.input, args.output)
-    asm.assemble_code()
+    asm = Assembler()
+    all_lines = []
+
+    with open(args.input,'r') as origin_file:
+        all_lines = origin_file.readlines()
+
+    assembled_code_string = asm.assemble_code(all_lines)
+    
+    with open(args.output, 'wb') as bin_out:
+        for byte_str in assembled_code_string:
+            bin_out.write(struct.pack('>B', int(byte_str, 2)))
+
+    print("Assembling Done.")
+
+    
     
