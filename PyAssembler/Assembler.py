@@ -1,12 +1,27 @@
 #! /usr/bin/env
+
+import sys
 import struct
 import argparse
 from enum import IntEnum, unique
 
 
+class TooManyParamsException(Exception):
+   """
+   Raised when the input line consist of 
+   more than 2 parameters
+   """
+   pass
+
+class NotRegisterArgumentException(Exception):
+   """
+   Raised when there is not a register in the 
+   first argument of a type-2 input line
+   """
+   pass
+
 
 class Sections():
-    
     STRING = '.string'
     DATA =   '.data'
 
@@ -59,14 +74,6 @@ class Assembler():
         self.output_file = out_file
         self.sym_tbl = {}
         self.current_address = 0
-
-
-    # Helper Functions
-
-
-    def invokeError(self, message):
-        print("ERROR:" + message)
-        exit()
 
 
     def convert_str_to_binary(self, data_string):
@@ -132,7 +139,7 @@ class Assembler():
         bin_reg1 = Assembler.REGISTERS.get(arg1)
         
         if not bin_reg1: 
-            self.invokeError("Invalid first register of 3-type line")
+            raise Exception("Invalid first register of 3-type line: " + arg1)
         
         else:
             trans_word1 = trans_word1[:4] + bin_reg1 + trans_word1[7:]  
@@ -175,7 +182,7 @@ class Assembler():
            self.handle_type_2(translated_words, words[1].rstrip(','), clean_sec_arg)
         
         else:
-            self.invokeError("It is not a valid assembly line (maybe comment or sections).")
+            raise TooManyParamsException
         
         self.current_address += 2
 
@@ -207,7 +214,14 @@ class Assembler():
         bin_opcode, opcode_type = Assembler.OPCODES.get(words[0])
         translated_words[0] = bin_opcode + Assembler.EMPTY_WORD[4:]                   
         
-        self.handle_by_type(words, opcode_type, translated_words)
+        try:
+            self.handle_by_type(words, opcode_type, translated_words)
+        
+        except TooManyParamsException:
+            raise Exception("At line: " + asm_line + " : Invalid assembly code line: Too many paramenters")
+        
+        except NotRegisterArgumentException:
+            raise Exception("At line: " + asm_line + " : First parameter of type-2 line must be a register.")
         
         return ''.join(translated_words)
 
@@ -266,6 +280,10 @@ class Assembler():
         
         # Translates the assembly lines with place-holders for the yet unconvertable expressions
         semi_trans_lines = [self.translate_line(line) for line in cleaned_lines]
+        
+        # Separate adjacent lines
+        semi_trans_lines = [line.split('\n') for line in semi_trans_lines]
+        semi_trans_lines = [element for sublist in semi_trans_lines for element in sublist]
         
         return semi_trans_lines
 
