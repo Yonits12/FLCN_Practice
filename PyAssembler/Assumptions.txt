@@ -2,11 +2,3 @@
 2. In general, the addressing mode refers to the LAST parameter of an assembly code line (if any).
 3. Branching operations can consist of ALL addressing modes
 4. It is allowed to hold some customized labels inside the symbol table (in order to handle arithmetics with labels)
-5. There is must be a space 
-
-
-
-
-Questions:
-1. For 1 param code lines: 
-2. 

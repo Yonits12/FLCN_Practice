@@ -39,11 +39,19 @@ class Assembler:
 
 
     class Sections(Enum):
+        """
+        Enumeration of the possible sections in the 
+        assembly code """
+        
         STRING = '.string'
         DATA =   '.data'
 
 
     class AddressingMode(Enum):
+        """
+        Enumeration of the possible Addressing modes
+        which can be used in an assemblt code line """
+
         REGISTER    = 0b00
         IMMEDIATE   = 0b01
         DIRECT      = 0b10
@@ -118,42 +126,74 @@ class Assembler:
         self.current_line_idx = -1
 
     def convert_str_to_binary(self, data_string):
+        """ 
+        Converts a string data in the .string section to it's binary
+        representation bytes. A null byte is added at the end of the string.
+        
+        :param data_string: The data string.
+        :returns: The corresponding binary bytes of the null-terminated string.
+        :rtype: bytes
+        """
         if not data_string.startswith(Assembler.STRING_AFFIX) and data_string.endswith(Assembler.STRING_AFFIX):
                 raise TypeError("String excpected, with surrounding \" at .string line")
+        
         data_string = data_string[len(Assembler.STRING_AFFIX):-len(Assembler.STRING_AFFIX)]
         if Assembler.STRING_AFFIX in data_string:
             raise ValueError("String must not include \" characters at .string line")
+        
         data_string = data_string + Assembler.NULL_TERMINATED
         self.current_address += len(data_string)
         return binascii.a2b_qp(data_string)
 
-    def handle_addressing_mode(self, second_arg):
+    def handle_addressing_mode(self, last_arg):
+        """ 
+        Resolves the addressing mode of the line's last argument and
+        cleans the addressing modes affixes from it.
+        
+        :param last_arg: The last argument of the assembly code line.
+        :returns addr_mode: A 2-bits length binary represents the addresing mode.
+        :returns clean_sec_arg: A string represents the cleaned version of the last argumet.
+        :rtypes: integer, string
+        """
         addr_mode = Assembler.AddressingMode.DIRECT.value
-        clean_sec_arg = second_arg
+        clean_sec_arg = last_arg
 
-        if Assembler.REGISTERS.get(second_arg):
+        if Assembler.REGISTERS.get(last_arg):
             addr_mode = Assembler.AddressingMode.REGISTER.value
-        
-        elif second_arg.isnumeric():
+        elif last_arg.isnumeric():
             addr_mode = Assembler.AddressingMode.IMMEDIATE.value
-        
-        elif second_arg.startswith(Assembler.INDIRECT_PREFIX) and second_arg.endswith(Assembler.INDIRECT_SUFFIX):
+        elif last_arg.startswith(Assembler.INDIRECT_PREFIX) and last_arg.endswith(Assembler.INDIRECT_SUFFIX):
             addr_mode = Assembler.AddressingMode.INDIRECT.value
-            clean_sec_arg = second_arg[len(Assembler.INDIRECT_PREFIX):-len(Assembler.INDIRECT_SUFFIX)]
-        
+            clean_sec_arg = last_arg[len(Assembler.INDIRECT_PREFIX):-len(Assembler.INDIRECT_SUFFIX)]
         return addr_mode, clean_sec_arg
 
     def handle_label(self, asm_line):
+        """ 
+        Checks if a label is attached to the assembly line and stores the
+        address of the line. Afterwards, removes the label from the line.
+        
+        :param asm_line: The assembly code line.
+        :returns: The unlabeled assembly code lide
+        :rtype: string
+        """
         # Extract label
         label, *rest_line = asm_line.split(Assembler.LABEL_SUFFIX, maxsplit=1)
         
-        # Save label to symbol table, and remove from line words
         if rest_line:
             self.sym_tbl[label] = self.current_address
             return rest_line.pop().lstrip()
         return asm_line
 
     def section_handler(self, asm_line, translated_words):
+        """ 
+        Checks if the line consist of a section, and handles the conversion
+        of it's data. Update the (potentially) 2 translated words with the new data.
+        
+        :param asm_line: The assembly code line.
+        :param translated_words: The (potentially) 2 words translated so far.
+        :returns: Whether the line is a section line (and handled) or not.
+        :rtype: boolean
+        """
         section, *rest_line = asm_line.split(maxsplit=1)
         
         if section == Assembler.Sections.STRING.value:
@@ -170,11 +210,16 @@ class Assembler:
         return True
 
     def handle_1_param_type(self, translated_words, arg):
+        """ 
+        Handles the 1-type line's parameter and update the cumulative translated words.
+        
+        :param translated_words: The (potentially) 2 words translated so far.
+        :param arg: The parameter of the line.
+        """
         trans_word1, trans_word2 = translated_words
         
         # Find 1st argument and then update relevant bits
         bin_reg = Assembler.REGISTERS.get(arg)
-        
         if bin_reg:
             trans_word1 = trans_word1 | bin_reg << Assembler.REG1_OFFSET
         else:
@@ -189,8 +234,14 @@ class Assembler:
         translated_words[self.SECOND_WORD] = trans_word2
 
     def handle_2_param_type(self, translated_words, arg1, arg2):
-        trans_word1, trans_word2 = translated_words
+        """ 
+        Handles the 2-type line's parameters and update the cumulative translated words.
         
+        :param translated_words: The (potentially) 2 words translated so far.
+        :param arg1: The first argument (must be register)
+        :param arg2: The second argument
+        """
+        trans_word1, trans_word2 = translated_words
         # Find 1st register and then update reg1 bits
         bin_reg1 = Assembler.REGISTERS.get(arg1)
         
@@ -201,9 +252,9 @@ class Assembler:
 
         # Find 2nd argument and then update relevant bits
         bin_reg2 = Assembler.REGISTERS.get(arg2)
-        
         if bin_reg2 is not None:
-            return trans_word1 | bin_reg2 << Assembler.REG2_OFFSET
+            translated_words[Assembler.FIRST_WORD] = trans_word1 | bin_reg2 << Assembler.REG2_OFFSET
+            return
         if arg2.isnumeric():
             trans_word2 = int(arg2)                          
         else:
@@ -215,12 +266,20 @@ class Assembler:
         translated_words[Assembler.SECOND_WORD] = trans_word2
 
     def handle_by_opcode_type(self, words, opcode_type, translated_words):
+        """ 
+        Handles the line's parameters according to the opcode and
+        updates the cumulative translated words
+        
+        :param words: List of separated parts of a line.
+        :param opcode_type: The number of parameters expected - indicator for the right handle
+        :param translated_words: The (potentially) 2 words translated so far.
+        """
         trans_word1 = translated_words[self.FIRST_WORD]
         self.current_address += Assembler.WORD_SIZE
 
         # nop
         if opcode_type == Assembler.ZERO_PARAMS_TYPE:
-            return        
+            return
         
         addr_mode, clean_sec_arg = self.handle_addressing_mode(words[Assembler.LAST_PARAM])
         
@@ -265,25 +324,29 @@ class Assembler:
         if len(words[Assembler.FIRST_PARAM:]) > opcode_type:
             raise Assembler.TooManyParamsException(asm_line)
         try:
-            self.handle_by_opcode_type(words, opcode_type, translated_words)
-        
+            self.handle_by_opcode_type(words, opcode_type, translated_words) 
         except Assembler.NotRegisterArgumentException as e:
             e.code_line = asm_line
             raise
-        
+
         if translated_words[Assembler.SECOND_WORD] is not None:
             return bytearray().join([tran_word.to_bytes(Assembler.NUM_BYTES, byteorder=Assembler.BIG_ENDIAN) for tran_word in translated_words])
-        
         return bytearray(translated_words[Assembler.FIRST_WORD].to_bytes(Assembler.NUM_BYTES, byteorder=Assembler.BIG_ENDIAN))
 
     def clean_comments(self, asm_lines):
+        """ 
+        Removes the comments (if exists) in each assembly code line.
+        
+        :param asm_lines: A list of extracted assembly lines.
+        :returns: A comments-cleaned version of the assembly lines
+        :rtype: List of strings
+        """
         for index, line in enumerate(asm_lines):
             line = line.strip()
             
             # Blank lines or Comment lines
             if line == '' or line.startswith(Assembler.COMMENT_PREFIX):
                 asm_lines[index] = None
-            
             else:
                 # Inline comments
                 code, *comment = line.split(Assembler.COMMENT_PREFIX, maxsplit=1)
@@ -292,17 +355,40 @@ class Assembler:
         return [line for line in asm_lines if line is not None]
 
     def first_step(self, assembly_lines):
+        """ 
+        Performs the first step in the assembling process. It consist of translation
+        of the code lines (except for the usages of labels), and storage of labels and their addresses.
+        
+        :param assembly_lines: A list of assembly code lines strings.
+        :returns: The partially-translated lines.
+        :rtype: list of bytearrays
+        """
         cleaned_lines = self.clean_comments(assembly_lines)
         semi_trans_lines = [self.translate_line(line) for line in cleaned_lines]
         return semi_trans_lines
 
     def second_step(self, semi_trans_lines):
+        """ 
+        Performs the second step in the assembling process. It resolves the correct
+        address value of a label and evaluates expressions of which it contained in them.
+        
+        :param semi_trans_lines: A list of partially-translated lines.
+        :returns: The completely translated lines
+        :rtype: list of bytearrays
+        """
         for line_num in self.untranslated_exps:
             eval_expr = eval(self.untranslated_exps[line_num], self.sym_tbl)
             semi_trans_lines[line_num].extend(eval_expr.to_bytes(Assembler.NUM_BYTES, byteorder=Assembler.BIG_ENDIAN))
         return semi_trans_lines
 
     def assemble_code(self, assembly_lines):
+         """ 
+        Performes the whole assembling process.
+        
+        :param assembly_lines: A list of the extracted assembly lines, as strings.
+        :returns: The completely translated lines to binary bytes.
+        :rtype: list of bytearrays
+        """
         half_translated_lines = self.first_step(assembly_lines)
         return self.second_step(half_translated_lines)
 
@@ -321,16 +407,15 @@ if __name__ == '__main__':
     asm = Assembler()
     all_lines = []
 
+    # Extract lines
     with open(args.input, STR_R_FORMAT) as origin_file:
         all_lines = origin_file.readlines()
 
     assembled_code_string = asm.assemble_code(all_lines)
     
+    # Extract to binary file
     with open(args.output, BYTES_W_FORMAT) as bin_out:
         for line_bytes in assembled_code_string:
             bin_out.write(line_bytes)
 
     print("Assembling Done.")
-
-    
-    
