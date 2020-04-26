@@ -7,6 +7,9 @@ import binascii
 from enum import Enum
 
 
+STR_R_FORMAT = 'r'
+BYTES_W_FORMAT = 'wb'
+
 
 class Assembler:
 
@@ -35,7 +38,6 @@ class Assembler:
             return 'Invalid assembly code line: first parameter {0} must be a register at line:  {1} '.format(self.arg, self.code_line)
 
 
-
     class Sections(Enum):
         STRING = '.string'
         DATA =   '.data'
@@ -49,14 +51,35 @@ class Assembler:
 
 
     # Constants
-    WORD_SIZE = 16
+    WORD_SIZE = 2
     ASCII_SIZE = 8
     EMPTY_WORD = 0b0
+    
     OPCODE_OFFSET = 12
     REG1_OFFSET = 9
     ADDR_MODE_OFFSET = 7
     REG2_OFFSET = 4
-
+    
+    NUM_BYTES = 2
+    TWO_BYTES_FORMAT = '>H'
+    BIG_ENDIAN = 'big'
+    NULL_TERMINATED = '\0'
+    INDIRECT_PREFIX = '['
+    INDIRECT_SUFFIX = ']'
+    STRING_AFFIX = '"'
+    LABEL_SUFFIX = ':'
+    COMMENT_PREFIX = ';'
+    REGISTER_SUFFIX = ','
+    SPACE = " "
+    
+    FIRST_WORD = 0
+    SECOND_WORD = 1
+    ZERO_PARAMS_TYPE = 0
+    ONE_PARAM_TYPE = 1
+    TWO_PARAMS_TYPE = 2
+    OPCODE = 0
+    FIRST_PARAM = 1
+    LAST_PARAM = -1
     
     OPCODES = {
         'mov': (0b0000, 2),
@@ -88,23 +111,21 @@ class Assembler:
         'r7': 0b111
     }
 
-
     def __init__(self):
         self.sym_tbl = {}
         self.untranslated_exps = {}
         self.current_address = 0
         self.current_line_idx = -1
 
-
     def convert_str_to_binary(self, data_string):
-        if not data_string.startswith('"') and data_string.endswith('"'):
+        if not data_string.startswith(Assembler.STRING_AFFIX) and data_string.endswith(Assembler.STRING_AFFIX):
                 raise TypeError("String excpected, with surrounding \" at .string line")
-        data_string = data_string[1:-1]
-        if '"' in data_string:
+        data_string = data_string[len(Assembler.STRING_AFFIX):-len(Assembler.STRING_AFFIX)]
+        if Assembler.STRING_AFFIX in data_string:
             raise ValueError("String must not include \" characters at .string line")
-        self.current_address += (len(data_string) + 1)
-        return binascii.a2b_qp(data_string + '\0')
-
+        data_string = data_string + Assembler.NULL_TERMINATED
+        self.current_address += len(data_string)
+        return binascii.a2b_qp(data_string)
 
     def handle_addressing_mode(self, second_arg):
         addr_mode = Assembler.AddressingMode.DIRECT.value
@@ -116,40 +137,37 @@ class Assembler:
         elif second_arg.isnumeric():
             addr_mode = Assembler.AddressingMode.IMMEDIATE.value
         
-        elif second_arg.startswith('[') and second_arg.endswith(']'):
+        elif second_arg.startswith(Assembler.INDIRECT_PREFIX) and second_arg.endswith(Assembler.INDIRECT_SUFFIX):
             addr_mode = Assembler.AddressingMode.INDIRECT.value
-            clean_sec_arg = second_arg[1:-1]
+            clean_sec_arg = second_arg[len(Assembler.INDIRECT_PREFIX):-len(Assembler.INDIRECT_SUFFIX)]
         
         return addr_mode, clean_sec_arg
 
-
     def handle_label(self, asm_line):
         # Extract label
-        label, *rest_line = asm_line.split(':', maxsplit=1)
+        label, *rest_line = asm_line.split(Assembler.LABEL_SUFFIX, maxsplit=1)
         
         # Save label to symbol table, and remove from line words
-        if len(rest_line) > 0:
-            self.sym_tbl[label] =  self.current_address
-            return rest_line[0].lstrip()
+        if rest_line:
+            self.sym_tbl[label] = self.current_address
+            return rest_line.pop().lstrip()
         return asm_line
-
 
     def section_handler(self, asm_line, translated_words):
         section, *rest_line = asm_line.split(maxsplit=1)
         
         if section == Assembler.Sections.STRING.value:
-            translated_words[0] = self.convert_str_to_binary(rest_line[0])      # remove quotes
+            translated_words[Assembler.FIRST_WORD] = self.convert_str_to_binary(rest_line.pop())      # remove quotes
         elif section == Assembler.Sections.DATA.value:
-            argument = rest_line[0].lstrip()
+            argument = rest_line.pop().lstrip()
             if argument.isnumeric():
-                self.current_address += 2
-                translated_words[0] = struct.pack('>H', int(argument))
+                self.current_address += Assembler.WORD_SIZE
+                translated_words[Assembler.FIRST_WORD] = struct.pack(Assembler.TWO_BYTES_FORMAT, int(argument))
             else:
                 raise ValueError("The input was not a number at line: " + asm_line)
         else:
             return False
         return True
-
 
     def handle_1_param_type(self, translated_words, arg):
         trans_word1, trans_word2 = translated_words
@@ -165,10 +183,10 @@ class Assembler:
             else:
                 self.untranslated_exps[self.current_line_idx] = arg
                 trans_word2 = None
-            self.current_address += 2
+            self.current_address += self.WORD_SIZE
         
-        translated_words[0] = trans_word1
-        translated_words[1] = trans_word2
+        translated_words[self.FIRST_WORD] = trans_word1
+        translated_words[self.SECOND_WORD] = trans_word2
 
     def handle_2_param_type(self, translated_words, arg1, arg2):
         trans_word1, trans_word2 = translated_words
@@ -192,34 +210,31 @@ class Assembler:
             self.untranslated_exps[self.current_line_idx] = arg2
             trans_word2 = None
         
-        self.current_address += 2
-        translated_words[0] = trans_word1
-        translated_words[1] = trans_word2
-
+        self.current_address += Assembler.WORD_SIZE
+        translated_words[Assembler.FIRST_WORD] = trans_word1
+        translated_words[Assembler.SECOND_WORD] = trans_word2
 
     def handle_by_opcode_type(self, words, opcode_type, translated_words):
-        trans_word1 = translated_words[0]
-        self.current_address += 2
+        trans_word1 = translated_words[self.FIRST_WORD]
+        self.current_address += Assembler.WORD_SIZE
 
         # nop
-        if opcode_type == 0:
+        if opcode_type == Assembler.ZERO_PARAMS_TYPE:
             return        
         
-        addr_mode, clean_sec_arg = self.handle_addressing_mode(words[-1])
+        addr_mode, clean_sec_arg = self.handle_addressing_mode(words[Assembler.LAST_PARAM])
         
         # update addr_mode bits
-        translated_words[0] = trans_word1 | addr_mode << Assembler.ADDR_MODE_OFFSET       
+        translated_words[self.FIRST_WORD] = trans_word1 | addr_mode << Assembler.ADDR_MODE_OFFSET       
         
         # not clr inc dec jmp jne jz
-        if opcode_type == 1:                                
+        if opcode_type == Assembler.ONE_PARAM_TYPE:                                
             self.handle_1_param_type(translated_words, clean_sec_arg)
         
         # mov cmp add sub lea xor or rol
-        elif opcode_type == 2:                              
-            self.handle_2_param_type(translated_words, words[1].rstrip(','), clean_sec_arg)
+        elif opcode_type == Assembler.TWO_PARAMS_TYPE:                              
+            self.handle_2_param_type(translated_words, words[Assembler.FIRST_PARAM].rstrip(Assembler.REGISTER_SUFFIX), clean_sec_arg)
         
-
-
     def translate_line(self, asm_line):
         """ 
         Converts an assembly code line to it's binary representation.
@@ -234,20 +249,20 @@ class Assembler:
         translated_words = [Assembler.EMPTY_WORD, None]
         # Section line check and translation
         if self.section_handler(unlabeled_asm_line, translated_words):
-            return bytearray(translated_words[0])
+            return bytearray(translated_words[self.FIRST_WORD])
 
         # Remove spaces from indirect expression, if any.
-        words = unlabeled_asm_line.split('[')
-        if len(words) > 1:
-            unlabeled_asm_line = words[0] + "[" + words[1].replace(" ", "")
+        code, *indirect = unlabeled_asm_line.split(Assembler.INDIRECT_PREFIX)
+        if indirect:
+            unlabeled_asm_line = code + Assembler.INDIRECT_PREFIX + indirect.pop().replace(Assembler.SPACE, "")
 
         words = unlabeled_asm_line.split()
         
         # update opcode bits
-        bin_opcode, opcode_type = Assembler.OPCODES.get(words[0])
-        translated_words[0] = Assembler.EMPTY_WORD | bin_opcode << Assembler.OPCODE_OFFSET                   
+        bin_opcode, opcode_type = Assembler.OPCODES.get(words[Assembler.OPCODE])
+        translated_words[Assembler.FIRST_WORD] = Assembler.EMPTY_WORD | bin_opcode << Assembler.OPCODE_OFFSET                   
         
-        if len(words[1:]) > opcode_type:
+        if len(words[Assembler.FIRST_PARAM:]) > opcode_type:
             raise Assembler.TooManyParamsException(asm_line)
         try:
             self.handle_by_opcode_type(words, opcode_type, translated_words)
@@ -256,38 +271,35 @@ class Assembler:
             e.code_line = asm_line
             raise
         
-        if translated_words[1] is not None:
-            return bytearray().join([tran_word.to_bytes(2, byteorder='big') for tran_word in translated_words])
+        if translated_words[Assembler.SECOND_WORD] is not None:
+            return bytearray().join([tran_word.to_bytes(Assembler.NUM_BYTES, byteorder=Assembler.BIG_ENDIAN) for tran_word in translated_words])
         
-        return bytearray(translated_words[0].to_bytes(2, byteorder='big'))
-
+        return bytearray(translated_words[Assembler.FIRST_WORD].to_bytes(Assembler.NUM_BYTES, byteorder=Assembler.BIG_ENDIAN))
 
     def clean_comments(self, asm_lines):
         for index, line in enumerate(asm_lines):
             line = line.strip()
             
             # Blank lines or Comment lines
-            if line == '' or line.startswith(';'):
+            if line == '' or line.startswith(Assembler.COMMENT_PREFIX):
                 asm_lines[index] = None
             
             else:
                 # Inline comments
-                code, *comment = line.split(';', maxsplit=1)
+                code, *comment = line.split(Assembler.COMMENT_PREFIX, maxsplit=1)
                 asm_lines[index] = code.strip()
         
         return [line for line in asm_lines if line is not None]
-
 
     def first_step(self, assembly_lines):
         cleaned_lines = self.clean_comments(assembly_lines)
         semi_trans_lines = [self.translate_line(line) for line in cleaned_lines]
         return semi_trans_lines
 
-
     def second_step(self, semi_trans_lines):
         for line_num in self.untranslated_exps:
             eval_expr = eval(self.untranslated_exps[line_num], self.sym_tbl)
-            semi_trans_lines[line_num].extend(eval_expr.to_bytes(2, byteorder='big'))
+            semi_trans_lines[line_num].extend(eval_expr.to_bytes(Assembler.NUM_BYTES, byteorder=Assembler.BIG_ENDIAN))
         return semi_trans_lines
 
     def assemble_code(self, assembly_lines):
@@ -309,12 +321,12 @@ if __name__ == '__main__':
     asm = Assembler()
     all_lines = []
 
-    with open(args.input,'r') as origin_file:
+    with open(args.input, STR_R_FORMAT) as origin_file:
         all_lines = origin_file.readlines()
 
     assembled_code_string = asm.assemble_code(all_lines)
     
-    with open(args.output, 'wb') as bin_out:
+    with open(args.output, BYTES_W_FORMAT) as bin_out:
         for line_bytes in assembled_code_string:
             bin_out.write(line_bytes)
 
