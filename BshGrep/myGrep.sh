@@ -1,21 +1,10 @@
-#!/bin/bash
-clear
-echo "starting shell script
+#!/usr/bin/env bash
 
-"
+INPUT=$2
+EXPR=$1
 
-input="yoni1.txt"
-# read currline <$input
-while IFS= read -r currline
-do
-    if [[ $currline =~ ^2 ]]
-    then
-        echo "It's there!"
-    else
-        echo "Ooooops!" 
+while IFS= read -r currline; do
+    if [[ $currline =~ $EXPR ]]; then
+        echo "$currline"
     fi
-
-  echo "$currline"
-done < "$input"
-
-
+done < "$INPUT"
