@@ -7,16 +7,17 @@ INPUT=$2
 
 while IFS= read -r currline; do
     if [[ $currline =~ $EXPR ]]; then
-        MATCH_IDX=${currline/$BASH_REMATCH*/}
+        UP_TO_MATCH=${currline/${BASH_REMATCH}*/}
+        MATCH_IDX=${#UP_TO_MATCH}
         HALF1=""
-        if [[ ${#MATCH_IDX} > 0 ]]; then
-            HALF1=$(cut -c 1-${#MATCH_IDX} <<< $currline)
+        if [[ $MATCH_IDX > 0 ]]; then
+            echo "______ Not at the beginning ______"
+            HALF1=$(cut -c 1-$MATCH_IDX <<< $currline)
         fi
-        let AFTER=${#MATCH_IDX}+${#BASH_REMATCH}+1
+        let AFTER=$MATCH_IDX+${#BASH_REMATCH}+1
         HALF2=$(cut -c ${AFTER}- <<< $currline)
-        echo -e "$HALF1\c"
-        echo -e "$RED${BASH_REMATCH[0]}$NC\c"
-        echo -e "$HALF2"
-        
+        echo -en "$HALF1"
+        echo -en "$RED${BASH_REMATCH}$NC"
+        echo "$HALF2"
     fi
 done < "${INPUT:-/dev/stdin}"
