@@ -6,17 +6,19 @@ EXPR=$1
 INPUT=$2
 
 while IFS= read -r currline; do
-    if [[ $currline =~ $EXPR ]]; then
-        HALF1_COOL=${currline%%"$BASH_REMATCH"*}
-        HALF2_COOL=${currline##*"$BASH_REMATCH"}
+    while [ -n "${currline}" ]; do
+        if [[ ${currline} =~ ${EXPR} ]]; then
+            HALF1_COOL=${currline%%"$BASH_REMATCH"*}
+            HALF2_COOL=${currline#*"$BASH_REMATCH"}
 
-        # double quotes essential for spaces keeping
-        echo -en "$HALF1_COOL"                      
-        echo -en "${RED}${BASH_REMATCH}${NC}"
-        echo "$HALF2_COOL"
-
-        # echo "HALF1_COOL:_____$HALF1_COOL"
-        # echo -e "BASH_REMATCH:_____${RED}${BASH_REMATCH}${NC}"
-        # echo "HALF2_COOL:_____$HALF2_COOL"
-    fi
+            # double quotes essential for spaces keeping
+            echo -en "${HALF1_COOL}"                      
+            echo -en "${RED}${BASH_REMATCH}${NC}"
+            currline="${HALF2_COOL}"
+        else
+            echo -n "${HALF2_COOL}"
+            currline=${currline#${currline}*}
+        fi
+    done
+    echo
 done < "${INPUT:-/dev/stdin}"
