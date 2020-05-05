@@ -16,9 +16,11 @@ while IFS= read -r currline; do
             echo -en "${RED}${BASH_REMATCH}${NC}"
             currline="${HALF2_COOL}"
         else
-            echo -n "${HALF2_COOL}"
-            currline=${currline#${currline}*}
+            if [[ -n ${HALF2_COOL+x} ]]; then
+                echo "${HALF2_COOL}"
+                unset HALF2_COOL
+            fi
+            currline=${currline#"${currline}"*}
         fi
     done
-    echo
 done < "${INPUT:-/dev/stdin}"
