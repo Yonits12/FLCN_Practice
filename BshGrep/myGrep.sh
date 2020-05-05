@@ -10,8 +10,9 @@ while IFS= read -r currline; do
         HALF1_COOL=${currline%%"$BASH_REMATCH"*}
         HALF2_COOL=${currline##*"$BASH_REMATCH"}
 
-        echo -en $HALF1_COOL
-        echo -en ${RED}${BASH_REMATCH}${NC}
+        # double quotes essential for spaces keeping
+        echo -en "$HALF1_COOL"                      
+        echo -en "${RED}${BASH_REMATCH}${NC}"
         echo "$HALF2_COOL"
 
         # echo "HALF1_COOL:_____$HALF1_COOL"
