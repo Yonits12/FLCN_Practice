@@ -15,27 +15,34 @@ DEPTH='│   '
 
 # gets DIRECTORY PREFIX
 dive_into(){
-    local curr_dir="$1"
+    local curr_dir="${1}"
     local curr_prefix="${2}"
-    local internal_prefix="${DEPTH}${curr_prefix}"
-    
-    IFS=""
+    local internal_prefix="${curr_prefix}${DEPTH}"
+    local list_files="${curr_dir}"/*
+    local files_array=($list_files)
+    local files_left=${#files_array[@]}
+    local branching="${BRANCH_MID}"
     for file in "$curr_dir"/*; do
-        local file_name=${file##*/}
+        local file_name="$(basename "${file}")"
+        if [[ $files_left -eq 1 ]]; then
+            branching="${BRANCH_END}"
+            internal_prefix="${internal_prefix/%"${DEPTH}"/'    '}"
+        fi
         if [[ -d ${file} ]]; then
-            echo "${curr_prefix}${BRANCH_MID}${DIR_FORMAT}${file_name}${NO_FORMAT}"
+            echo "${curr_prefix}${branching}${DIR_FORMAT}${file_name}${NO_FORMAT}"
             dive_into "${file}" "${internal_prefix}"
         else
-            color_by_type "${file}" "${file_name}" "${curr_prefix}${BRANCH_MID}"
+            color_by_type "${file}" "${curr_prefix}${branching}"
         fi
+        ((--files_left))
     done
 }
 
-# gets PATH FILENAME PREFIX
+# gets PATH PREFIX
 color_by_type(){
     local path_to_file=$1
-    local filename=$2
-    local curr_prefix=$3
+    local filename="$(basename "${path_to_file}")"
+    local curr_prefix=$2
     if [[ -e ${path_to_file} ]]; then   # exist
         echo "${curr_prefix}${filename}"
     elif [[ -L ${path_to_file} ]]; then #link
