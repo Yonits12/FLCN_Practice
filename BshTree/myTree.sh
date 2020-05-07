@@ -3,12 +3,12 @@
 #COLORS
 DIR_FORMAT=$'\033[1;94m'
 LINK=$'\033[1;36m'
-EXE=$'\033[1;31m'
+EXE=$'\033[1;92m'
 NO_FORMAT=$'\033[0m'
 
-ZIP=$'\033[1;93m'
+ZIP=$'\033[1;31m'
 MEDIA=$'\033[1;95m'
-SOCKET=$'\033[1;92m'
+SOCKET=$'\033[1;93m'
 BRANCH_MID='├── '
 BRANCH_END='└── '
 DEPTH='│   '
@@ -28,7 +28,14 @@ dive_into(){
             branching="${BRANCH_END}"
             internal_prefix="${internal_prefix/%"${DEPTH}"/'    '}"
         fi
-        if [[ -d ${file} ]]; then
+        if [[ -L ${file} ]]; then #link
+            local origin="$(readlink -f ${file})"
+            if [[ "${origin}" == */*/* ]]; then
+                origin="../$(basename `dirname $origin`)/$(basename $origin)"
+            fi
+            # TODO: Handle broken links here
+            echo "${curr_prefix}${LINK}${file_name} -> ${origin}${NO_FORMAT}"
+        elif [[ -d ${file} ]]; then
             echo "${curr_prefix}${branching}${DIR_FORMAT}${file_name}${NO_FORMAT}"
             dive_into "${file}" "${internal_prefix}"
         else
@@ -45,8 +52,6 @@ color_by_type(){
     local curr_prefix=$2
     if [[ -e ${path_to_file} ]]; then   # exist
         echo "${curr_prefix}${filename}"
-    elif [[ -L ${path_to_file} ]]; then #link
-        echo "${curr_prefix}${LINK}${filename}${NO_FORMAT}"
     elif [[ -f ${path_to_file} ]]; then # regular
         echo "${curr_prefix}${LINK}${filename}${NO_FORMAT}"
     elif [[ -S ${path_to_file} ]]; then
@@ -59,5 +64,5 @@ color_by_type(){
 }
 
 dir=${1:-.}
-echo "${DIR_FORMAT}${dir}${NO_FORMAT}"
+echo "${EXE}${dir}${NO_FORMAT}"
 dive_into $dir ""
