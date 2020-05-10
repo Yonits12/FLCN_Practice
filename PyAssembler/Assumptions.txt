@@ -1,4 +1,0 @@
-1. The first parameter of 2-parameter operations is ALWAYS in the Register mode (Because of the struct of the first translatd binary word).
-2. In general, the addressing mode refers to the LAST parameter of an assembly code line (if any).
-3. Branching operations can consist of ALL addressing modes
-4. It is allowed to hold some customized labels inside the symbol table (in order to handle arithmetics with labels)
